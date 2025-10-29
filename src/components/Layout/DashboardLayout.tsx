@@ -9,6 +9,7 @@ import {
   Sparkles,
   Menu,
   X,
+  Truck,
 } from "lucide-react";
 
 interface DashboardLayoutProps {
@@ -19,6 +20,7 @@ const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Users, label: "Customers", path: "/customers" },
   { icon: Package, label: "Inventory", path: "/inventory" },
+  { icon: Truck, label: "Suppliers", path: "/suppliers" },
   { icon: ShoppingCart, label: "Sales", path: "/sales" },
   { icon: TrendingUp, label: "Staff Performance", path: "/staff" },
 ];
