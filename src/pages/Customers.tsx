@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, AlertTriangle, Phone, Mail } from "lucide-react";
+import { Search, AlertTriangle, Phone, Mail, Plus } from "lucide-react";
 import AllergyAlertModal from "@/components/Modals/AllergyAlertModal";
+import CustomerFormModal from "@/components/Modals/CustomerFormModal";
 
 interface Customer {
   id: number;
@@ -17,53 +18,55 @@ interface Customer {
   lastVisit: string;
 }
 
+const initialCustomers: Customer[] = [
+  {
+    id: 1,
+    name: "Sarah Johnson",
+    phone: "+1 234-567-8901",
+    email: "sarah.j@email.com",
+    skinType: "Oily",
+    allergies: ["Fragrance", "Parabens"],
+    purchases: 24,
+    lastVisit: "2 days ago",
+  },
+  {
+    id: 2,
+    name: "Emma Davis",
+    phone: "+1 234-567-8902",
+    email: "emma.d@email.com",
+    skinType: "Dry",
+    allergies: ["Alcohol"],
+    purchases: 18,
+    lastVisit: "5 days ago",
+  },
+  {
+    id: 3,
+    name: "Olivia Smith",
+    phone: "+1 234-567-8903",
+    email: "olivia.s@email.com",
+    skinType: "Sensitive",
+    allergies: ["Fragrance", "Essential Oils", "Sulfates"],
+    purchases: 31,
+    lastVisit: "1 day ago",
+  },
+  {
+    id: 4,
+    name: "Sophia Brown",
+    phone: "+1 234-567-8904",
+    email: "sophia.b@email.com",
+    skinType: "Combination",
+    allergies: [],
+    purchases: 12,
+    lastVisit: "1 week ago",
+  },
+];
+
 export default function Customers() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [allergyModalOpen, setAllergyModalOpen] = useState(false);
-
-  const customers: Customer[] = [
-    {
-      id: 1,
-      name: "Sarah Johnson",
-      phone: "+1 234-567-8901",
-      email: "sarah.j@email.com",
-      skinType: "Oily",
-      allergies: ["Fragrance", "Parabens"],
-      purchases: 24,
-      lastVisit: "2 days ago",
-    },
-    {
-      id: 2,
-      name: "Emma Davis",
-      phone: "+1 234-567-8902",
-      email: "emma.d@email.com",
-      skinType: "Dry",
-      allergies: ["Alcohol"],
-      purchases: 18,
-      lastVisit: "5 days ago",
-    },
-    {
-      id: 3,
-      name: "Olivia Smith",
-      phone: "+1 234-567-8903",
-      email: "olivia.s@email.com",
-      skinType: "Sensitive",
-      allergies: ["Fragrance", "Essential Oils", "Sulfates"],
-      purchases: 31,
-      lastVisit: "1 day ago",
-    },
-    {
-      id: 4,
-      name: "Sophia Brown",
-      phone: "+1 234-567-8904",
-      email: "sophia.b@email.com",
-      skinType: "Combination",
-      allergies: [],
-      purchases: 12,
-      lastVisit: "1 week ago",
-    },
-  ];
+  const [formModalOpen, setFormModalOpen] = useState(false);
 
   const getSkinTypeBadge = (skinType: string) => {
     const colors: Record<string, string> = {
@@ -80,15 +83,33 @@ export default function Customers() {
     setAllergyModalOpen(true);
   };
 
+  const handleAddCustomer = () => {
+    setSelectedCustomer(null);
+    setFormModalOpen(true);
+  };
+
+  const handleSaveCustomer = (customer: Customer) => {
+    setCustomers(prev => [customer, ...prev]);
+  };
+
   const filteredCustomers = customers.filter((customer) =>
     customer.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
     <div className="page-container">
-      <div className="mb-6">
-        <h1 className="text-4xl font-bold text-foreground mb-2">Customer Profiles</h1>
-        <p className="text-muted-foreground">Manage customer information and purchase history</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-4xl font-bold text-foreground mb-2">Customer Profiles</h1>
+          <p className="text-muted-foreground">Manage customer information and purchase history</p>
+        </div>
+        <Button
+          onClick={handleAddCustomer}
+          className="rounded-full h-12 px-6 bg-primary hover:bg-primary/90 shadow-soft transition-all hover:shadow-hover"
+        >
+          <Plus className="h-5 w-5 mr-2" />
+          Add New Customer
+        </Button>
       </div>
 
       {/* Search Bar */}
@@ -105,7 +126,7 @@ export default function Customers() {
       {/* Customer Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {filteredCustomers.map((customer) => (
-          <Card key={customer.id} className="rounded-3xl border-white/20 shadow-card hover:shadow-hover transition-all">
+          <Card key={customer.id} className="rounded-3xl border-white/20 shadow-card hover:shadow-hover transition-all animate-fade-in">
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div>
@@ -180,6 +201,14 @@ export default function Customers() {
           allergies={selectedCustomer.allergies}
         />
       )}
+
+      {/* Customer Form Modal */}
+      <CustomerFormModal
+        open={formModalOpen}
+        onOpenChange={setFormModalOpen}
+        onSave={handleSaveCustomer}
+        customer={null}
+      />
     </div>
   );
 }
