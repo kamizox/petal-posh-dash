@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,67 +6,18 @@ import { Input } from "@/components/ui/input";
 import { Search, AlertTriangle, Phone, Mail, Plus } from "lucide-react";
 import AllergyAlertModal from "@/components/Modals/AllergyAlertModal";
 import CustomerFormModal from "@/components/Modals/CustomerFormModal";
-
-interface Customer {
-  id: number;
-  name: string;
-  phone: string;
-  email: string;
-  skinType: string;
-  allergies: string[];
-  purchases: number;
-  lastVisit: string;
-}
-
-const initialCustomers: Customer[] = [
-  {
-    id: 1,
-    name: "Sarah Johnson",
-    phone: "+1 234-567-8901",
-    email: "sarah.j@email.com",
-    skinType: "Oily",
-    allergies: ["Fragrance", "Parabens"],
-    purchases: 24,
-    lastVisit: "2 days ago",
-  },
-  {
-    id: 2,
-    name: "Emma Davis",
-    phone: "+1 234-567-8902",
-    email: "emma.d@email.com",
-    skinType: "Dry",
-    allergies: ["Alcohol"],
-    purchases: 18,
-    lastVisit: "5 days ago",
-  },
-  {
-    id: 3,
-    name: "Olivia Smith",
-    phone: "+1 234-567-8903",
-    email: "olivia.s@email.com",
-    skinType: "Sensitive",
-    allergies: ["Fragrance", "Essential Oils", "Sulfates"],
-    purchases: 31,
-    lastVisit: "1 day ago",
-  },
-  {
-    id: 4,
-    name: "Sophia Brown",
-    phone: "+1 234-567-8904",
-    email: "sophia.b@email.com",
-    skinType: "Combination",
-    allergies: [],
-    purchases: 12,
-    lastVisit: "1 week ago",
-  },
-];
+import { useCustomers, Customer } from "@/hooks/useCustomers";
 
 export default function Customers() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
+  const { customers, addCustomer, subscribe } = useCustomers();
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [allergyModalOpen, setAllergyModalOpen] = useState(false);
   const [formModalOpen, setFormModalOpen] = useState(false);
+
+  useEffect(() => {
+    return subscribe();
+  }, []);
 
   const getSkinTypeBadge = (skinType: string) => {
     const colors: Record<string, string> = {
@@ -89,7 +40,7 @@ export default function Customers() {
   };
 
   const handleSaveCustomer = (customer: Customer) => {
-    setCustomers(prev => [customer, ...prev]);
+    addCustomer(customer);
   };
 
   const filteredCustomers = customers.filter((customer) =>
