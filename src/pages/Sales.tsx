@@ -2,10 +2,11 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Plus, Trash2, ShoppingCart, AlertCircle } from "lucide-react";
+import { Search, Plus, Trash2, ShoppingCart, AlertCircle, Calendar } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useCustomers, Customer } from "@/hooks/useCustomers";
+import { useProductBatches, AggregatedProduct } from "@/hooks/useProductBatches";
 import CustomerSelector from "@/components/Sales/CustomerSelector";
 import CustomerFormModal from "@/components/Modals/CustomerFormModal";
 import {
@@ -18,20 +19,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { format, differenceInDays } from "date-fns";
 
 interface CartItem {
   id: number;
   name: string;
   price: number;
   quantity: number;
-}
-
-interface Product {
-  id: number;
-  name: string;
-  brand: string;
-  price: number;
-  stock: number;
+  batchId: string;
+  expiryDate: string;
 }
 
 export default function Sales() {
@@ -43,25 +44,16 @@ export default function Sales() {
   const [pendingCustomer, setPendingCustomer] = useState<Customer | null>(null);
   
   const { customers, addCustomer } = useCustomers();
-
-  const availableProducts: Product[] = [
-    { id: 1, name: "Vitamin C Serum", brand: "The Ordinary", price: 45.00, stock: 23 },
-    { id: 2, name: "Hyaluronic Acid", brand: "CeraVe", price: 38.00, stock: 45 },
-    { id: 3, name: "Retinol Night Cream", brand: "Neutrogena", price: 52.00, stock: 12 },
-    { id: 4, name: "Gentle Cleanser", brand: "Cetaphil", price: 32.00, stock: 67 },
-    { id: 5, name: "SPF 50 Sunscreen", brand: "La Roche-Posay", price: 48.00, stock: 8 },
-  ];
+  const { aggregatedProducts, getEarliestBatch, consumeStock } = useProductBatches();
 
   const handleSelectCustomer = (customer: Customer | null) => {
     if (customer === null && cart.length > 0) {
-      // Trying to deselect customer with items in cart
       setChangeCustomerDialogOpen(true);
       setPendingCustomer(null);
       return;
     }
     
     if (customer && selectedCustomer && cart.length > 0) {
-      // Trying to change customer with items in cart
       setChangeCustomerDialogOpen(true);
       setPendingCustomer(customer);
       return;
@@ -77,31 +69,64 @@ export default function Sales() {
     setPendingCustomer(null);
   };
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: AggregatedProduct) => {
     if (!selectedCustomer) return;
     
-    const existingItem = cart.find(item => item.id === product.id);
+    // Get the earliest expiring batch (FIFO)
+    const earliestBatch = getEarliestBatch(product.productId);
+    
+    if (!earliestBatch || earliestBatch.stock <= 0) {
+      toast.error("No stock available for this product");
+      return;
+    }
+
+    const existingItem = cart.find(
+      (item) => item.id === product.productId && item.batchId === earliestBatch.id
+    );
+
     if (existingItem) {
-      setCart(cart.map(item =>
-        item.id === product.id
+      // Check if we have enough stock in this batch
+      if (existingItem.quantity >= earliestBatch.stock) {
+        toast.error("Maximum stock reached for this batch");
+        return;
+      }
+      
+      setCart(cart.map((item) =>
+        item.id === product.productId && item.batchId === earliestBatch.id
           ? { ...item, quantity: item.quantity + 1 }
           : item
       ));
     } else {
-      setCart([...cart, { id: product.id, name: product.name, price: product.price, quantity: 1 }]);
+      setCart([
+        ...cart,
+        {
+          id: product.productId,
+          name: product.name,
+          price: product.price,
+          quantity: 1,
+          batchId: earliestBatch.id,
+          expiryDate: earliestBatch.expiryDate,
+        },
+      ]);
+    }
+
+    // Show which batch was selected
+    const daysUntilExpiry = differenceInDays(new Date(earliestBatch.expiryDate), new Date());
+    if (daysUntilExpiry <= 30) {
+      toast.info(`Added from batch ${earliestBatch.batchNumber} (expires in ${daysUntilExpiry} days)`);
     }
   };
 
-  const removeFromCart = (id: number) => {
-    setCart(cart.filter(item => item.id !== id));
+  const removeFromCart = (id: number, batchId: string) => {
+    setCart(cart.filter((item) => !(item.id === id && item.batchId === batchId)));
   };
 
-  const updateQuantity = (id: number, quantity: number) => {
+  const updateQuantity = (id: number, batchId: string, quantity: number) => {
     if (quantity <= 0) {
-      removeFromCart(id);
+      removeFromCart(id, batchId);
     } else {
-      setCart(cart.map(item =>
-        item.id === id ? { ...item, quantity } : item
+      setCart(cart.map((item) =>
+        item.id === id && item.batchId === batchId ? { ...item, quantity } : item
       ));
     }
   };
@@ -109,24 +134,34 @@ export default function Sales() {
   const handleCompleteSale = () => {
     if (!selectedCustomer || cart.length === 0) return;
 
-    // Simulate saving sale
+    // Process stock consumption for each cart item
+    for (const item of cart) {
+      const result = consumeStock(item.id, item.quantity);
+      if (!result.success) {
+        toast.error(`Error processing ${item.name}: ${result.error}`);
+        return;
+      }
+    }
+
     const saleData = {
       customerId: selectedCustomer.id,
       customerName: selectedCustomer.name,
-      items: cart,
+      items: cart.map((item) => ({
+        ...item,
+        batchId: item.batchId,
+      })),
       subtotal,
       tax,
       total,
       timestamp: new Date().toISOString(),
     };
     
-    console.log("Sale completed:", saleData);
+    console.log("Sale completed with FIFO:", saleData);
     
     toast.success(`Sale completed for ${selectedCustomer.name}`, {
       description: `Total: $${total.toFixed(2)}`,
     });
 
-    // Clear cart and customer
     setCart([]);
     setSelectedCustomer(null);
   };
@@ -137,21 +172,42 @@ export default function Sales() {
     toast.success("Customer added successfully");
   };
 
-  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const tax = subtotal * 0.1;
   const total = subtotal + tax;
 
-  const filteredProducts = availableProducts.filter((product) =>
+  const filteredProducts = aggregatedProducts.filter((product) =>
     product.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const isCartDisabled = !selectedCustomer;
 
+  const getExpiryBadge = (expiryDate: string) => {
+    const daysUntilExpiry = differenceInDays(new Date(expiryDate), new Date());
+    
+    if (daysUntilExpiry <= 30) {
+      return (
+        <Badge variant="destructive" className="rounded-full text-xs">
+          <Calendar className="h-3 w-3 mr-1" />
+          {daysUntilExpiry}d
+        </Badge>
+      );
+    } else if (daysUntilExpiry <= 90) {
+      return (
+        <Badge variant="secondary" className="rounded-full text-xs bg-amber-100 text-amber-700">
+          <Calendar className="h-3 w-3 mr-1" />
+          {daysUntilExpiry}d
+        </Badge>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="page-container">
       <div className="mb-6">
         <h1 className="text-4xl font-bold text-foreground mb-2">Sales & Billing</h1>
-        <p className="text-muted-foreground">Create new sales transactions</p>
+        <p className="text-muted-foreground">Create new sales transactions (FIFO: earliest expiry sold first)</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -178,35 +234,61 @@ export default function Sales() {
                 </div>
               )}
               <div className="space-y-3">
-                {filteredProducts.map((product) => (
-                  <div
-                    key={product.id}
-                    className={`flex items-center justify-between p-4 rounded-2xl transition-colors ${
-                      isCartDisabled ? 'opacity-60' : 'hover:bg-accent/50'
-                    }`}
-                  >
-                    <div className="flex-1">
-                      <h4 className="font-semibold">{product.name}</h4>
-                      <p className="text-sm text-muted-foreground">{product.brand}</p>
-                      <Badge variant="secondary" className="rounded-full text-xs mt-1">
-                        Stock: {product.stock}
-                      </Badge>
+                {filteredProducts.map((product) => {
+                  const earliestBatch = getEarliestBatch(product.productId);
+                  const daysUntilExpiry = earliestBatch 
+                    ? differenceInDays(new Date(earliestBatch.expiryDate), new Date())
+                    : null;
+
+                  return (
+                    <div
+                      key={product.productId}
+                      className={`flex items-center justify-between p-4 rounded-2xl transition-colors ${
+                        isCartDisabled ? "opacity-60" : "hover:bg-accent/50"
+                      }`}
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-semibold">{product.name}</h4>
+                          {daysUntilExpiry !== null && daysUntilExpiry <= 30 && (
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <Badge variant="destructive" className="rounded-full text-xs">
+                                  Expiring Soon
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Earliest batch expires on {format(new Date(product.earliestExpiry), "MMM d, yyyy")}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">{product.brand}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="secondary" className="rounded-full text-xs">
+                            Stock: {product.totalStock}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {product.batches.length} batch{product.batches.length > 1 ? "es" : ""}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right flex items-center gap-4">
+                        <span className="font-bold text-lg text-primary">
+                          ${product.price.toFixed(2)}
+                        </span>
+                        <Button
+                          onClick={() => addToCart(product)}
+                          size="sm"
+                          className="btn-primary"
+                          disabled={isCartDisabled || product.totalStock === 0}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="text-right flex items-center gap-4">
-                      <span className="font-bold text-lg text-primary">
-                        ${product.price.toFixed(2)}
-                      </span>
-                      <Button
-                        onClick={() => addToCart(product)}
-                        size="sm"
-                        className="btn-primary"
-                        disabled={isCartDisabled}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
@@ -240,13 +322,16 @@ export default function Sales() {
                 <>
                   <div className="space-y-3 max-h-64 overflow-y-auto">
                     {cart.map((item) => (
-                      <div key={item.id} className="p-3 bg-accent/50 rounded-2xl">
+                      <div key={`${item.id}-${item.batchId}`} className="p-3 bg-accent/50 rounded-2xl">
                         <div className="flex items-start justify-between mb-2">
-                          <h5 className="font-medium text-sm flex-1">{item.name}</h5>
+                          <div className="flex-1">
+                            <h5 className="font-medium text-sm">{item.name}</h5>
+                            {getExpiryBadge(item.expiryDate)}
+                          </div>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => removeFromCart(item.id)}
+                            onClick={() => removeFromCart(item.id, item.batchId)}
                             className="h-6 w-6 p-0 hover:bg-destructive/10"
                           >
                             <Trash2 className="h-3 w-3 text-destructive" />
@@ -257,16 +342,18 @@ export default function Sales() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                              onClick={() => updateQuantity(item.id, item.batchId, item.quantity - 1)}
                               className="h-7 w-7 p-0 rounded-full"
                             >
                               -
                             </Button>
-                            <span className="text-sm font-semibold w-8 text-center">{item.quantity}</span>
+                            <span className="text-sm font-semibold w-8 text-center">
+                              {item.quantity}
+                            </span>
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                              onClick={() => updateQuantity(item.id, item.batchId, item.quantity + 1)}
                               className="h-7 w-7 p-0 rounded-full"
                             >
                               +
@@ -295,7 +382,7 @@ export default function Sales() {
                     </div>
                   </div>
 
-                  <Button 
+                  <Button
                     className="w-full btn-primary mt-4"
                     onClick={handleCompleteSale}
                     disabled={!selectedCustomer || cart.length === 0}
@@ -328,7 +415,10 @@ export default function Sales() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmCustomerChange} className="rounded-xl bg-primary hover:bg-primary/90">
+            <AlertDialogAction
+              onClick={confirmCustomerChange}
+              className="rounded-xl bg-primary hover:bg-primary/90"
+            >
               Clear Cart & Change
             </AlertDialogAction>
           </AlertDialogFooter>
